@@ -1,0 +1,675 @@
+---
+title: "Linkage map and analysis of a _Mimulus guttatus_ and _Mimulus nasutus_ interspecific cross"
+author: "André Augusto Stella, Diana Carolina Solarte Certuche, Guilherme Bovi Ambrosano, Izally Carvalho Gervásio"
+date: "28/05/2021"
+output: 
+  html_document:
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(onemap)
+
+library(ggplot2)
+library(patchwork)
+library(plotly)
+
+library(DT)
+
+load("../../saida/LGs.RData")
+source("../../programas/02_tabelas.R")
+
+get_name <- function(number) {
+  colnames(bins$geno)[number]
+}
+get_number <- function(marker) {
+  which(colnames(bins$geno)==marker)
+}
+
+get_position <- function(LGs, numeros, inverter=F) {
+  if(inverter) {
+    lista_mapa_final <- lapply(lista_mapa_final, inverter_mapa)
+  }
+  posicoes <- sapply(seq(1, length(numeros)), function(x) {
+    loco <- which(lista_mapa_final[[LGs[x]]][[1]] == numeros[x])
+    c(0, cumsum(kosambi(lista_mapa_final[[LGs[x]]][[3]])))[loco]
+  })
+}
+
+inverter_mapa <- function(x) {
+  y <- x
+  y$seq.num <- rev(x$seq.num)
+  y$seq.rf <- rev(x$seq.rf)
+  return(y)
+}
+
+ggdraw_map_comp <- function(novo, antigo, comeco_alt=0) {
+  grupos <- list(novo, antigo)
+  plot <- lapply(grupos, function(x) { 
+    tibble(pos=c(0, cumsum(kosambi(x[[3]]))),
+           marker=sapply(x[[1]], get_name))
+    }) %>%
+    set_names("Ours", "Fishman et al. (2001)") %>% 
+    bind_rows(.id="grupo") %>%
+    mutate_at(vars(grupo), factor, levels=c("Ours", "Fishman et al. (2001)")) %>% 
+    mutate_at(vars(pos), ~ifelse(grupo != "Ours", pos+comeco_alt, pos)) %>% 
+    select(position=pos, grupo, marker) %>%
+    ggplot(aes(x=grupo, y=position, label=marker)) +
+    geom_point(shape=45, size=2) +
+    geom_text(check_overlap = T, nudge_x = 0.15, size=3) +
+    geom_line(size=1) +
+    labs(x="") +
+    scale_y_reverse(name="Distance (cM)") +
+    theme_minimal()
+  return(plot)
+}
+
+plotar_heatmaps <- function(x, alternativa) {
+  plot <- ((rf_graph_table(x) +
+              rf_graph_table(alternativa) &
+              scale_fill_gradientn(colours = rainbow(4), limits=c(0, 0.5),
+                                   na.value = "white")) +
+             plot_layout(guides="collect") +
+             plot_annotation(tag_levels=list(c("Ours", "Fishman et al. (2001)"))))
+  
+  return(plot)
+}
+
+
+mapa_novo <- lapply(lista_mapa_final, function(x) tibble(marcador=x$seq.num)) %>%
+  bind_rows(.id="LG") %>%
+  mutate_at(vars(LG), as.numeric) %>%
+  mutate_at(vars(marcador), ~sapply(., get_name))
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Construction of the linkage map
+
+The data we used consisted in 418 markers, genotyped from an F$_2$ population with 287 individuals.
+Some of these data were used to construct a linkage map in a previous work^[Fishman, L., Kelly, A. J., Morgan, E., & Willis, J. H. (2001). A genetic map in the Mimulus guttatus species complex reveals transmission ratio distortion due to heterospecific interactions. _Genetics_, 159(4), 1701-1716. doi: 10.1093/genetics/159.4.1701 (URL: https://doi.org/10.1093/genetics/159.4.1701).].
+The linkage map was constructed using the `onemap` R package version 2.1.3^[Margarido, G., de Souza, A., Garcia, A. (2007). OneMap: software for genetic mapping in outcrossing species. _Hereditas_. doi: 10.1111/j.2007.0018-0661.02000.x (URL: https://doi.org/10.1111/j.2007.0018-0661.02000.x).].
+
+We found 14 linkage groups, shown below. You can hover over the marker's position with your mouse cursor to see more information.
+
+```{r, echo=F}
+
+mapa <- lapply(lista_mapa_final, function(x) { 
+  tibble(position=c(0, cumsum(kosambi(x[[3]]))),
+         marker=sapply(x[[1]], get_name))
+}) %>%
+  bind_rows(.id="grupo") %>%
+  mutate_at(vars(grupo), str_replace, "^", "LG") %>%
+  mutate_at(vars(grupo), factor, levels=c(paste0("LG", seq(1, length(lista_mapa_final))), "")) %>% 
+  ggplot(aes(y=position, label=marker)) +
+  geom_point(aes(x=1), shape=45, size=2) +
+  geom_text(aes(x=1.15), check_overlap = T, size=3, family="serif") +
+  geom_line(aes(x=1), size=1) +
+  facet_wrap(~grupo, ncol=5) +
+  labs(y="Distance (cM)") +
+  scale_x_continuous(limits=c(0.75, 1.25)) +
+  scale_y_reverse() +
+  theme_minimal(base_size = 15, base_family="serif") +
+  theme(strip.text = element_text(size=15, family="serif", hjust=0.5),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(margin = margin(0, 0, 0, 20)))
+
+ggplotly(mapa, tooltip = c("marker", "position"), width=1000, height = 1300) %>%
+  config(displayModeBar = F)
+
+```
+
+
+## Comparison with previous work {.tabset}
+
+Below, we compare the marker order obtained here (left) with that presented in a previous work (right) for the fourteen linkage groups.
+
+With the functions ```try_seq``` and ```rf_graph_table``` from the package ```onemap``` we could see the markers that fit or did not fit the map so well.
+We tried positions for markers that yielded a LOD score no lower than -3 by the ```try_seq``` function.
+Also, we removed markers whose presence modified the map too much, by increasing the total size by more than 7 cM or affecting the positioning of other markers.
+
+### Linkage group 1
+
+In our map, the markers AAT267, BA129, BA374 were not included in the first linkage group.
+Also, the position of the marker AAT333 was changed, yielding a shorter map.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG1_paper <- lista_mapa_final[[1]] %>%
+  drop_marker(lista_mapa_final[[1]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[1]]$seq.num, 
+                      get_name), "MgSTS")]) %>%
+  map() %>%
+  try_seq(get_number("AAT267")) %>%
+  make_seq(5) %>%
+  try_seq(get_number("BA129")) %>% 
+  make_seq(6) %>%
+  try_seq(get_number("BA374")) %>%
+  make_seq(11) %>%
+  drop_marker(get_number("AAT333")) %>%
+  map() %>%
+  try_seq(get_number("AAT333")) %>%
+  make_seq(12)
+
+plotar_heatmaps(lista_mapa_final[[1]], alt=LG1_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[1]], LG1_paper,
+                         comeco_alt=cumsum(kosambi(lista_mapa_final[[1]]$seq.rf))[2]),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 2
+
+In the second group, the markers AA420, BA172 and CC132 that were in the previous version were not included.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG2_paper <- lista_mapa_final[[2]] %>%
+  drop_marker(lista_mapa_final[[2]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[2]]$seq.num, 
+                      get_name), "MgSTS")]) %>%
+  map() %>%
+  try_seq(get_number("AA420")) %>%
+  make_seq(3) %>%
+  try_seq(get_number("BA172")) %>%
+  make_seq(7) %>%
+  try_seq(get_number("CC132")) %>%
+  make_seq(10)
+
+plotar_heatmaps(lista_mapa_final[[2]], alt=LG2_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[2]], LG2_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 3
+
+In the third group, the marker BA384 was not included and BD286 was placed between CA220 and CB156.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG3_paper <- lista_mapa_final[[3]] %>%
+  drop_marker(lista_mapa_final[[3]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[3]]$seq.num, 
+                      get_name), "MgSTS")]) %>%
+  map() %>%
+  drop_marker(get_number("BD286")) %>%
+  map() %>%
+  try_seq(get_number("BD286")) %>%
+  make_seq(2) %>%
+  try_seq(get_number("BA384")) %>%
+  make_seq(6)
+
+
+plotar_heatmaps(lista_mapa_final[[3]], alt=LG3_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[3]], LG3_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 4
+
+In the fourth linkage group, CA384 and BD239 were not included.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG4_paper <- lista_mapa_final[[4]] %>%
+  drop_marker(lista_mapa_final[[4]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[4]]$seq.num, 
+                      get_name), "MgSTS")]) %>%
+  map() %>%
+  try_seq(get_number("CA384")) %>%
+  make_seq(9) %>%
+  try_seq(get_number("BD239")) %>%
+  make_seq(10)
+  
+plotar_heatmaps(lista_mapa_final[[4]], alt=LG4_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[4]], LG4_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 5
+
+CB230 was included in the fifth linkage group and AA378, CC342 and AA118C were removed.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG5_paper <- lista_mapa_final[[5]] %>%
+  drop_marker(c(lista_mapa_final[[5]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[5]]$seq.num, 
+                      get_name), "MgSTS")],
+    get_number("CB230"))) %>%
+  map() %>%
+  try_seq(get_number("AA378")) %>%
+  make_seq(6) %>%
+  try_seq(get_number("CC342")) %>%
+  make_seq(8) %>%
+  try_seq(get_number("AA118C")) %>%
+  make_seq(12)
+
+plotar_heatmaps(lista_mapa_final[[5]], alt=LG5_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[5]], LG5_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 6
+
+In the sixth linkage group, AA227, AA158, BD169 and CC126 were not included.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+
+LG6_paper <- lista_mapa_final[[6]] %>%
+  drop_marker(lista_mapa_final[[6]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[6]]$seq.num, 
+                      get_name), "MgSTS")]) %>%
+  map() %>%
+  try_seq(get_number("AA277")) %>%
+  make_seq(3) %>%
+  try_seq(get_number("AA158")) %>%
+  make_seq(4) %>%
+  try_seq(get_number("BD169")) %>%
+  make_seq(5) %>%
+  try_seq(get_number("CC126")) %>%
+  make_seq(10)
+  
+plotar_heatmaps(lista_mapa_final[[6]], alt=LG6_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[6]], LG6_paper,
+                comeco_alt=cumsum(kosambi(lista_mapa_final[[6]]$seq.rf))[4]),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 7
+
+The marker CB162 was added to the seventh group, BD209, AA280 and BB103C were filtered and AA361 were placed between CB162 and CA258C.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+
+
+LG7_paper <- lista_mapa_final[[7]] %>%
+  drop_marker(c(lista_mapa_final[[7]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[7]]$seq.num, 
+                      get_name), "MgSTS")],
+    get_number("CB162"), get_number("AA361"))) %>%
+  map() %>%
+  try_seq(get_number("BD209")) %>%
+  make_seq(1) %>%
+  try_seq(get_number("AA280")) %>%
+  make_seq(3) %>%
+  try_seq(get_number("BB103C")) %>%
+  make_seq(5) %>%
+  try_seq(get_number("AA361")) %>%
+  make_seq(6)
+
+plotar_heatmaps(lista_mapa_final[[7]], alt=LG7_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[7]], LG7_paper,
+                comeco_alt=cumsum(kosambi(lista_mapa_final[[7]]$seq.rf))[2] -
+                  cumsum(kosambi(LG7_paper$seq.rf))[1]),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 8
+
+In linkage group 8, the markers AAT211, BA314 and CC338C were removed.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG8_paper <- lista_mapa_final[[8]] %>%
+  drop_marker(lista_mapa_final[[8]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[8]]$seq.num, 
+                      get_name), "MgSTS")]) %>%
+  map() %>%
+  try_seq(get_number("AAT211")) %>%
+  make_seq(7) %>%
+  try_seq(get_number("BA314")) %>%
+  make_seq(9) %>%
+  try_seq(get_number("CC338C")) %>%
+  make_seq(11)
+
+plotar_heatmaps(lista_mapa_final[[8]], alt=LG8_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[8]], LG8_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 9
+
+In linkage group 9, we added BA400 and BB176.
+Also, CA196 was placed between CA115 and AAT222.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG9_paper <- lista_mapa_final[[9]] %>%
+  drop_marker(c(lista_mapa_final[[9]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[9]]$seq.num, 
+                      get_name), "MgSTS")],
+    get_number("BA400"), get_number("BB176"),
+    get_number("CA196"))) %>%
+  map() %>%
+  try_seq(get_number("CA196")) %>%
+  make_seq(9)
+
+plotar_heatmaps(lista_mapa_final[[9]], alt=LG9_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[9]], LG9_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 10
+
+The markers CA96, CC392 and AA153C were added to linkage group 10.
+Also, the marker AAT283 was placed at the extremity of the map.
+In the previous map, AAT283 was between BD433 and CB309.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG10_paper <- lista_mapa_final[[10]] %>%
+  drop_marker(lista_mapa_final[[10]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[10]]$seq.num, 
+                      get_name), "MgSTS")]) %>%
+  map() %>%
+  drop_marker(get_number("AAT283")) %>%
+  map() %>%
+  try_seq(get_number("AAT283")) %>%
+  make_seq(2) %>%
+  try_seq(get_number("AA153C")) %>%
+  make_seq(4) %>%
+  try_seq(get_number("CA96")) %>%
+  make_seq(11) %>%
+  try_seq(get_number("CC392")) %>%
+  make_seq(13)
+
+plotar_heatmaps(lista_mapa_final[[10]], alt=LG10_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[10]], LG10_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 11
+
+In linkage group 11, the order of the markers CC61-BC526C-BA449 was changed to BA449-BC526-CC61.
+Also, AAT356 was placed between BD100 and BB124.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG11_paper <- lista_mapa_final[[11]] %>%
+  drop_marker(c(lista_mapa_final[[11]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[11]]$seq.num, 
+                      get_name), "MgSTS")],
+    get_number("CC61"),
+    get_number("BA449"),
+    get_number("AAT356"))) %>%
+  map() %>%
+  try_seq(get_number("CC61")) %>%
+  make_seq(1) %>%
+  try_seq(get_number("BA449")) %>%
+  make_seq(3) %>%
+  try_seq(get_number("AAT356")) %>%
+  make_seq(7)
+
+plotar_heatmaps(lista_mapa_final[[11]], alt=LG11_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[11]], LG11_paper,
+                comeco_alt = cumsum(kosambi(lista_mapa_final[[11]]$seq.rf))[7] -
+                  cumsum(kosambi(LG11_paper$seq.rf))[1]),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 12
+
+In linkage group 12, the position of the marker CA378 changed.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG12_paper <- lista_mapa_final[[12]] %>%
+  drop_marker(c(lista_mapa_final[[12]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[12]]$seq.num, 
+                      get_name), "MgSTS")],
+    get_number("CA378"))) %>%
+  map() %>%
+  try_seq(get_number("CA378")) %>%
+  make_seq(10)
+
+plotar_heatmaps(lista_mapa_final[[12]], alt=LG12_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[12]], LG12_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 13
+
+CA315 was added to linkage group 13.
+Also, the ordering of the markers BB198-BC199-BA145 changed to BA145-BC199-BB198.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG13_paper <- lista_mapa_final[[13]] %>%
+  drop_marker(c(lista_mapa_final[[13]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[13]]$seq.num, 
+                      get_name), "MgSTS")],
+    get_number("CA315"),
+    get_number("BA145"),
+    get_number("BB198"))) %>%
+  map() %>%
+  try_seq(get_number("BB198")) %>%
+  make_seq(1) %>%
+  try_seq(get_number("BA145")) %>%
+  make_seq(3)
+
+plotar_heatmaps(lista_mapa_final[[13]], alt=LG13_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[13]], LG13_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+### Linkage group 14
+
+In linkage group 14, the order of the markers BC80-CC320-AP3 changed to CC320-BC80-AP3.
+
+```{r, echo=F, warning=F, message=F, results='hide', fig.width=12}
+
+LG14_paper <- lista_mapa_final[[14]] %>%
+  drop_marker(c(lista_mapa_final[[14]]$seq.num[
+    str_starts(sapply(lista_mapa_final[[14]]$seq.num, 
+                      get_name), "MgSTS")],
+    get_number("CC320"))) %>%
+  map() %>%
+  try_seq(get_number("CC320")) %>% 
+  make_seq(10)
+
+plotar_heatmaps(lista_mapa_final[[14]], alt=LG14_paper)
+
+```
+
+```{r, echo=F, warning=F, message=F}
+
+ggplotly(ggdraw_map_comp(lista_mapa_final[[14]], LG14_paper),
+         tooltip = c("marker", "position"), width=1000) %>%
+  config(displayModeBar = F)
+
+```
+
+## {-}
+
+# Transmission Rate Distortion
+
+```{r, echo=F}
+
+freqs <- tabela_segregacao(bins)
+
+```
+
+Results of the tests for TRD for each marker are presented below.
+The p-value has been corrected for multiple tests using the Bonferroni procedure.
+
+```{r, echo=F}
+
+freqs %>%
+  right_join(mapa_novo, by="marcador") %>% 
+  mutate_at(vars(p.val.adj), str_replace, ",", ".") %>%
+  select(Marker = marcador, `Linkage group` = LG, Hypothesis,
+         Missing=Perdidos, NN=A, `NG or GN`=H, GG=B, `Non-GG`=D, `Non-NN`=C,
+         `Adjusted p-value` = p.val.adj, Significance = p.val.adj.signif) %>%
+  mutate(rownames=sapply(.$Marker, get_number),
+         pos=get_position(`Linkage group`, rownames)) %>%
+  mutate_at(vars(`Linkage group`),
+            ~factor(paste0("LG", .), levels=paste0("LG", seq(1, 14)))) %>%
+  arrange(`Linkage group`, pos) %>%
+  select(-pos) %>% 
+  column_to_rownames(var="rownames") %>%
+  mutate_at(vars(Marker, `Linkage group`, Hypothesis, Significance), factor) %>% 
+  mutate_at(vars(Missing, NN, `NG or GN`, GG, `Non-GG`,
+                 `Non-NN`, `Adjusted p-value`), as.character) %>% 
+  datatable(filter="top", options = list(pageLength = 15))
+ 
+```
+
+Below, these results can also be observed in relation to the marker position in our map.
+We found a region with four contiguous markers favoring the presence of the _M. guttatus_ allele in linkage group 1 and a region with 14 markers in linkage group 11.
+In linkage group 14, there is a region with seven contiguous markers favoring _M. nasutus_ allele, but there are 5 other markers on the other end of the linkage group favoring _M. guttatus_ allele.
+These findings are similar to those reported in the previous work.
+
+```{r, echo=F}
+
+tdr <- freqs %>%
+  mutate(numero = sapply(marcador, get_number),
+         LG=case_when(numero %in% lista_mapa_final[[1]]$seq.num  ~ 1,
+                      numero %in% lista_mapa_final[[2]]$seq.num  ~ 2,
+                      numero %in% lista_mapa_final[[3]]$seq.num  ~ 3,
+                      numero %in% lista_mapa_final[[4]]$seq.num  ~ 4,
+                      numero %in% lista_mapa_final[[5]]$seq.num  ~ 5,
+                      numero %in% lista_mapa_final[[6]]$seq.num  ~ 6,
+                      numero %in% lista_mapa_final[[7]]$seq.num  ~ 7,
+                      numero %in% lista_mapa_final[[8]]$seq.num  ~ 8,
+                      numero %in% lista_mapa_final[[9]]$seq.num  ~ 9,
+                      numero %in% lista_mapa_final[[10]]$seq.num ~ 10,
+                      numero %in% lista_mapa_final[[11]]$seq.num ~ 11,
+                      numero %in% lista_mapa_final[[12]]$seq.num ~ 12,
+                      numero %in% lista_mapa_final[[13]]$seq.num ~ 13,
+                      numero %in% lista_mapa_final[[14]]$seq.num ~ 14,
+                      T ~ 0)) %>%
+  filter(LG!=0) %>%
+  mutate(pos = get_position(LG, numero, inverter=T)) %>%
+  mutate_at(vars(A, H, B, D, C), str_remove, " \\([:digit:]+,[:digit:]%\\)$") %>%
+  mutate_at(vars(A, H, B, D, C), as.numeric) %>%
+  # B = GG /A = NN
+  mutate(GG = case_when(segregacao=="A.H.B" ~ 0.25 - B/(A+H+B),
+                        segregacao=="D.B" ~ 0.25 - B/(B+D)),
+         NN = case_when(segregacao=="A.H.B" ~ A/(A+H+B)-0.25,
+                        segregacao=="C.A" ~ A/(A+C) -0.25),
+         cor = ifelse(p.val.adj.signif=="ns", "Nonsignificant", "Significant")) %>%
+  pivot_longer(cols=c(GG, NN)) %>%
+  select(marker = marcador, LG, segregacao, A, H, B, D, C, pos, name, value, cor, p.val.adj) %>%
+  mutate_at(vars(LG), ~factor(paste0("LG", .), levels=paste0("LG", seq(1, 14)))) %>% 
+  group_by(LG) %>%
+  mutate(max_pos=max(pos)) %>%
+  ungroup() %>%
+  ggplot(aes(x=pos, y=value, label=marker)) +
+  facet_wrap(~LG, ncol=2, scales="free_y") +
+  geom_point(aes(shape=name, color=cor), stroke=0.7, size=2.5) +
+  geom_segment(aes(x=0, y=0, xend=max_pos, yend=0), linetype="dotted") +
+  scale_shape_manual(values=c(4, 3)) +
+  scale_color_manual(values=c("lightgrey", "black")) +
+  scale_y_continuous(limits=c(-0.2, 0.2), breaks=c(-.3, -.2, -.1, 0, .1, .2, .3)) +
+  geom_text(data=tibble(x=c(180, 180),
+                        y=c(0.13, -0.13),
+                        LG=factor(c("LG1", "LG1"), levels=paste0("LG", seq(1, 14))),
+                        label=c("NN excess/\nGG deficit",
+                                "GG excess/\nNN deficit")),aes(x=x, y=y, label=label),
+            family="serif", fontface="bold", size=4) +
+  labs(x="Marker position (cM)",
+       y="Deviation of homozygous genotype frequency from Mendelian expectation",
+       shape="", color="") +
+  theme_minimal(base_size=15, base_family="serif")
+
+ggplotly(tdr, tooltip = c("marker"), width=1000, height = 1300) %>%
+  config(displayModeBar = F) %>%
+  layout(legend = list(orientation = "h", x=0.1, y =-0.1))
+
+```
+
